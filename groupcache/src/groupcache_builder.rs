@@ -98,10 +98,11 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
         )));
 
         if let Some(service_discovery) = service_discovery {
-            tokio::spawn(run_service_discovery(
+            let handle = tokio::spawn(run_service_discovery(
                 Arc::downgrade(&cache.0),
                 service_discovery,
             ));
+            cache.0.set_service_discovery_abort(handle.abort_handle());
         }
 
         cache
