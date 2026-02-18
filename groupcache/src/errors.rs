@@ -1,12 +1,65 @@
-use rmp_serde::decode::Error;
+use rmp_serde::decode::Error as RmpError;
 use std::sync::Arc;
 use tonic::Status;
 
+/// Error type for groupcache operations.
+///
+/// Variants are public so callers can match on error causes to distinguish
+/// loader failures from network issues, deserialization problems, etc.
 #[derive(thiserror::Error, Debug)]
-#[error(transparent)]
-pub struct GroupcacheError {
-    #[from]
-    error: InternalGroupcacheError,
+pub enum GroupcacheError {
+    /// The [`ValueLoader`](crate::ValueLoader) returned an error.
+    #[error("Loading error: '{0}'")]
+    Loading(Box<dyn std::error::Error + Send + Sync + 'static>),
+
+    /// gRPC transport error when communicating with a peer.
+    #[error("Transport error: '{}'", .0.message())]
+    Transport(Status),
+
+    /// Failed to deserialize a value received from a peer.
+    #[error("Deserialization error: '{0}'")]
+    Deserialization(RmpError),
+
+    /// Failed to establish a connection to one or more peers.
+    #[error("Connection error: '{0}'")]
+    Connection(tonic::transport::Error),
+
+    /// Multiple connection errors when updating the peer set.
+    #[error("Connection errors: {0:?}")]
+    ConnectionErrors(Vec<GroupcacheError>),
+
+    /// A peer returned an empty response.
+    #[error("Peer returned empty value for key '{0}'")]
+    EmptyResponse(String),
+
+    /// Internal or unexpected error.
+    #[error(transparent)]
+    Internal(anyhow::Error),
+}
+
+impl From<InternalGroupcacheError> for GroupcacheError {
+    fn from(err: InternalGroupcacheError) -> Self {
+        match err {
+            InternalGroupcacheError::LocalLoader(e) => GroupcacheError::Loading(e),
+            InternalGroupcacheError::Transport(e) => GroupcacheError::Transport(e),
+            InternalGroupcacheError::Rmp(e) => GroupcacheError::Deserialization(e),
+            InternalGroupcacheError::Connection(e) => GroupcacheError::Connection(e),
+            InternalGroupcacheError::EmptyResponse(key) => GroupcacheError::EmptyResponse(key),
+            InternalGroupcacheError::ConnectionErrors(errs) => {
+                GroupcacheError::ConnectionErrors(errs.into_iter().map(Into::into).collect())
+            }
+            InternalGroupcacheError::Anyhow(e) => GroupcacheError::Internal(e),
+            InternalGroupcacheError::Deduped(DedupedGroupcacheError(arc)) => {
+                // Try to unwrap the Arc to preserve the original error variant.
+                // Falls back to string representation if other references exist
+                // (e.g. singleflight distributed the error to multiple callers).
+                match Arc::try_unwrap(arc) {
+                    Ok(inner) => inner.into(),
+                    Err(arc) => GroupcacheError::Internal(anyhow::anyhow!("{}", arc)),
+                }
+            }
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
@@ -22,7 +75,7 @@ pub(crate) enum InternalGroupcacheError {
     Transport(#[from] Status),
 
     #[error(transparent)]
-    Rmp(#[from] Error),
+    Rmp(#[from] RmpError),
 
     #[error(transparent)]
     Deduped(#[from] DedupedGroupcacheError),
