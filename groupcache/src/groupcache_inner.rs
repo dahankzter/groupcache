@@ -224,18 +224,22 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     }
 
     pub(crate) async fn add_peer(&self, peer: GroupcachePeer) -> Result<(), GroupcacheError> {
-        let contains_peer = {
+        // Quick check with read lock to avoid unnecessary connections.
+        {
             let read_lock = self.routing_state.read().unwrap();
-            read_lock.contains_peer(&peer)
-        };
-
-        if contains_peer {
-            return Ok(());
+            if read_lock.contains_peer(&peer) {
+                return Ok(());
+            }
         }
 
         let (_, client) = self.connect(peer).await?;
+
+        // Re-check under write lock to avoid adding a duplicate if another task
+        // connected to the same peer concurrently.
         let mut write_lock = self.routing_state.write().unwrap();
-        write_lock.add_peer(peer, client);
+        if !write_lock.contains_peer(&peer) {
+            write_lock.add_peer(peer, client);
+        }
 
         Ok(())
     }
@@ -364,17 +368,10 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     }
 
     pub(crate) async fn remove_peer(&self, peer: GroupcachePeer) -> Result<(), GroupcacheError> {
-        let contains_peer = {
-            let read_lock = self.routing_state.read().unwrap();
-            read_lock.contains_peer(&peer)
-        };
-
-        if !contains_peer {
-            return Ok(());
-        }
-
         let mut write_lock = self.routing_state.write().unwrap();
-        write_lock.remove_peer(peer);
+        if write_lock.contains_peer(&peer) {
+            write_lock.remove_peer(peer);
+        }
 
         Ok(())
     }
