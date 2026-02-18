@@ -175,7 +175,9 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             .await?;
 
         let get_response = response.into_inner();
-        let bytes = get_response.value.unwrap();
+        let bytes = get_response
+            .value
+            .ok_or_else(|| InternalGroupcacheError::EmptyResponse(key.to_string()))?;
         let value = rmp_serde::from_read(bytes.as_slice())?;
 
         Ok(value)
@@ -258,11 +260,13 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         }
 
         let conn_errors = self.update_routing_table(new_connections_results, peers_to_remove);
-        conn_errors.is_empty().then(|| Ok(())).unwrap_or_else(|| {
+        if conn_errors.is_empty() {
+            Ok(())
+        } else {
             Err(GroupcacheError::from(
                 InternalGroupcacheError::ConnectionErrors(conn_errors),
             ))
-        })
+        }
     }
 
     /// Updates routing table by adding new successful connections and removing old peers
