@@ -36,8 +36,9 @@ pub(crate) async fn run_service_discovery<Value: ValueBounds>(
     cache: Weak<GroupcacheInner<Value>>,
     service_discovery: Box<dyn ServiceDiscovery>,
 ) {
-    while let Some(cache) = cache.upgrade() {
+    loop {
         tokio::time::sleep(service_discovery.interval()).await;
+        let Some(cache) = cache.upgrade() else { break };
         match service_discovery.pull_instances().await {
             Ok(instances) => {
                 if let Err(error) = cache.set_peers(instances).await {
