@@ -9,6 +9,7 @@ use groupcache_pb::GroupcacheClient;
 use groupcache_pb::GroupcacheServer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tonic::transport::Channel;
@@ -235,6 +236,12 @@ pub struct GroupcachePeer {
 impl GroupcachePeer {
     pub fn from_socket(value: SocketAddr) -> Self {
         From::from(value)
+    }
+}
+
+impl fmt::Display for GroupcachePeer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.socket)
     }
 }
 
