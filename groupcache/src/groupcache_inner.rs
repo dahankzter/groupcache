@@ -131,7 +131,11 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
                 self.hot_cache.insert(key.to_string(), value.clone()).await;
                 Ok(value)
             }
-            Err(_) => {
+            Err(err) => {
+                log::warn!(
+                    "Remote load failed for key '{}' from peer {:?}, falling back to local load: {}",
+                    key, peer.peer, err
+                );
                 let value = self.load_locally_instrumented(key).await?;
                 Ok(value)
             }
