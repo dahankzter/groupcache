@@ -8,7 +8,6 @@ use std::collections::HashSet;
 
 use std::net::SocketAddr;
 use std::ops::Sub;
-use std::str::FromStr;
 use tokio::time;
 
 #[tokio::test]
@@ -75,7 +74,13 @@ async fn test_healthy_peers_added_despite_one_unhealthy() -> Result<()> {
         .map(|e| e.addr().into())
         .collect::<HashSet<GroupcachePeer>>();
 
-    peers.insert(SocketAddr::from_str("127.0.0.1:8080")?.into());
+    // Bind a port, then immediately drop the listener so the port is free
+    // but nothing is listening. This avoids flakiness from hardcoded ports
+    // that may be occupied by other processes.
+    let unreachable_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let unreachable_addr = unreachable_listener.local_addr()?;
+    drop(unreachable_listener);
+    peers.insert(unreachable_addr.into());
     let result = me.set_peers(peers.clone()).await;
     if result.is_ok() {
         panic!("Expected failure to set peers with unreachable address");
