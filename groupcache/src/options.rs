@@ -4,6 +4,7 @@ use moka::future::Cache;
 use std::time::Duration;
 use tonic::transport::Endpoint;
 
+static DEFAULT_MAIN_CACHE_MAX_CAPACITY: u64 = 100_000;
 static DEFAULT_HOT_CACHE_MAX_CAPACITY: u64 = 10_000;
 static DEFAULT_HOT_CACHE_TIME_TO_LIVE: Duration = Duration::from_secs(30);
 static DEFAULT_GRPC_CLIENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -18,7 +19,9 @@ pub(crate) struct Options<Value: ValueBounds> {
 
 impl<Value: ValueBounds> Default for Options<Value> {
     fn default() -> Self {
-        let main_cache = Cache::<String, Value>::builder().build();
+        let main_cache = Cache::<String, Value>::builder()
+            .max_capacity(DEFAULT_MAIN_CACHE_MAX_CAPACITY)
+            .build();
 
         let hot_cache = Cache::<String, Value>::builder()
             .max_capacity(DEFAULT_HOT_CACHE_MAX_CAPACITY)
