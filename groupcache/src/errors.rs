@@ -35,4 +35,7 @@ pub(crate) enum InternalGroupcacheError {
 
     #[error(transparent)]
     Anyhow(#[from] anyhow::Error),
+
+    #[error("Peer returned empty value for key '{0}'")]
+    EmptyResponse(String),
 }
