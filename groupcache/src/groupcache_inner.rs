@@ -184,7 +184,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         let bytes = get_response
             .value
             .ok_or_else(|| InternalGroupcacheError::EmptyResponse(key.to_string()))?;
-        let value = rmp_serde::from_read(bytes.as_slice())?;
+        let value = rmp_serde::from_slice(&bytes)?;
 
         Ok(value)
     }
