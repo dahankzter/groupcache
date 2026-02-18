@@ -1,6 +1,7 @@
 use crate::service_discovery::ServiceDiscovery;
 use crate::ValueBounds;
 use moka::future::Cache;
+use std::sync::Arc;
 use std::time::Duration;
 use tonic::transport::Endpoint;
 
@@ -10,8 +11,8 @@ static DEFAULT_HOT_CACHE_TIME_TO_LIVE: Duration = Duration::from_secs(30);
 static DEFAULT_GRPC_CLIENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(crate) struct Options<Value: ValueBounds> {
-    pub(crate) main_cache: Cache<String, Value>,
-    pub(crate) hot_cache: Cache<String, Value>,
+    pub(crate) main_cache: Cache<Arc<str>, Value>,
+    pub(crate) hot_cache: Cache<Arc<str>, Value>,
     pub(crate) grpc_endpoint_builder: Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>,
     pub(crate) https: bool,
     pub(crate) service_discovery: Option<Box<dyn ServiceDiscovery>>,
@@ -19,11 +20,11 @@ pub(crate) struct Options<Value: ValueBounds> {
 
 impl<Value: ValueBounds> Default for Options<Value> {
     fn default() -> Self {
-        let main_cache = Cache::<String, Value>::builder()
+        let main_cache = Cache::<Arc<str>, Value>::builder()
             .max_capacity(DEFAULT_MAIN_CACHE_MAX_CAPACITY)
             .build();
 
-        let hot_cache = Cache::<String, Value>::builder()
+        let hot_cache = Cache::<Arc<str>, Value>::builder()
             .max_capacity(DEFAULT_HOT_CACHE_MAX_CAPACITY)
             .time_to_live(DEFAULT_HOT_CACHE_TIME_TO_LIVE)
             .build();
