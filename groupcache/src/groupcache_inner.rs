@@ -17,8 +17,8 @@ use moka::future::Cache;
 use singleflight_async::SingleFlight;
 use std::collections::HashSet;
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
-use tokio::task::JoinSet;
+use std::sync::{Arc, OnceLock, RwLock};
+use tokio::task::{AbortHandle, JoinSet};
 use tonic::transport::Endpoint;
 use tonic::IntoRequest;
 
@@ -31,6 +31,7 @@ pub struct GroupcacheInner<Value: ValueBounds> {
     loader: Box<dyn ValueLoader<Value = Value>>,
     config: Config,
     me: GroupcachePeer,
+    service_discovery_abort: OnceLock<AbortHandle>,
 }
 
 struct Config {
@@ -64,6 +65,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             loader,
             me,
             config,
+            service_discovery_abort: OnceLock::new(),
         }
     }
 
@@ -380,7 +382,19 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         Ok(())
     }
 
+    pub(crate) fn set_service_discovery_abort(&self, handle: AbortHandle) {
+        let _ = self.service_discovery_abort.set(handle);
+    }
+
     pub(crate) fn addr(&self) -> SocketAddr {
         self.me.socket
+    }
+}
+
+impl<Value: ValueBounds> Drop for GroupcacheInner<Value> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.service_discovery_abort.get() {
+            handle.abort();
+        }
     }
 }
