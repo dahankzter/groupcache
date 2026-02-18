@@ -6,6 +6,12 @@ use moka::future::Cache;
 use std::sync::Arc;
 use tonic::transport::Endpoint;
 
+/// Type alias for the cache key used by groupcache.
+///
+/// `Arc<str>` is used instead of `String` to avoid heap allocations when
+/// cloning keys across the main cache, hot cache, and singleflight group.
+pub type CacheKey = Arc<str>;
+
 /// Allows to build groupcache instance with customized caches, timeouts etc
 pub struct GroupcacheBuilder<Value: ValueBounds> {
     me: GroupcachePeer,
@@ -33,7 +39,7 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
     ///
     /// By default, main_cache stores up to 100k items with no TTL.
     /// This setter allows to customize this cache (eviction policy, size etc.)
-    pub fn main_cache(mut self, main_cache: Cache<String, Value>) -> Self {
+    pub fn main_cache(mut self, main_cache: Cache<CacheKey, Value>) -> Self {
         self.options.main_cache = main_cache;
         self
     }
@@ -46,7 +52,7 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
     ///
     /// By default, hot_cache stores up to 10k items and expires after 30s.
     /// Depending on use_case you may either disable hot_cache or tweak time_to_live.
-    pub fn hot_cache(mut self, hot_cache: Cache<String, Value>) -> Self {
+    pub fn hot_cache(mut self, hot_cache: Cache<CacheKey, Value>) -> Self {
         self.options.hot_cache = hot_cache;
         self
     }

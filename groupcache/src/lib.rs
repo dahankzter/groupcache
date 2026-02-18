@@ -11,7 +11,7 @@ mod routing;
 mod service_discovery;
 
 pub use groupcache::{Groupcache, GroupcachePeer, ValueBounds, ValueLoader};
-pub use groupcache_builder::GroupcacheBuilder;
+pub use groupcache_builder::{CacheKey, GroupcacheBuilder};
 pub use groupcache_inner::GroupcacheInner;
 pub use groupcache_pb::GroupcacheServer;
 pub use service_discovery::ServiceDiscovery;

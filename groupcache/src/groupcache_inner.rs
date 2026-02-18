@@ -25,9 +25,9 @@ use tonic::IntoRequest;
 /// Core implementation of groupcache API.
 pub struct GroupcacheInner<Value: ValueBounds> {
     routing_state: Arc<RwLock<RoutingState>>,
-    single_flight_group: SingleFlight<String, Result<Value, DedupedGroupcacheError>>,
-    main_cache: Cache<String, Value>,
-    hot_cache: Cache<String, Value>,
+    single_flight_group: SingleFlight<Arc<str>, Result<Value, DedupedGroupcacheError>>,
+    main_cache: Cache<Arc<str>, Value>,
+    hot_cache: Cache<Arc<str>, Value>,
     loader: Box<dyn ValueLoader<Value = Value>>,
     config: Config,
     me: GroupcachePeer,
@@ -102,7 +102,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         peer: GroupcachePeerWithClient,
     ) -> Result<Value, InternalGroupcacheError> {
         self.single_flight_group
-            .work(key.to_owned(), || async {
+            .work(Arc::from(key), || async {
                 self.get_deduped(key, peer)
                     .await
                     .map_err(|e| DedupedGroupcacheError(Arc::new(e)))
@@ -118,7 +118,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     ) -> Result<Value, InternalGroupcacheError> {
         if peer.peer == self.me {
             let value = self.load_locally_instrumented(key).await?;
-            self.main_cache.insert(key.to_string(), value.clone()).await;
+            self.main_cache.insert(Arc::from(key), value.clone()).await;
             return Ok(value);
         }
 
@@ -128,7 +128,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         let res = self.load_remotely_instrumented(key, &mut client).await;
         match res {
             Ok(value) => {
-                self.hot_cache.insert(key.to_string(), value.clone()).await;
+                self.hot_cache.insert(Arc::from(key), value.clone()).await;
                 Ok(value)
             }
             Err(err) => {
