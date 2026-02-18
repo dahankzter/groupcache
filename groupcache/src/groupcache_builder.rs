@@ -31,8 +31,8 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
     /// There is one owner of a given key in a set of peers
     /// forming hash ring and this peer stores values in main_cache.
     ///
-    /// By default,
-    /// [`moka`] cache is used and this setter allows to customize this cache (eviction policy, size etc.)
+    /// By default, main_cache stores up to 100k items with no TTL.
+    /// This setter allows to customize this cache (eviction policy, size etc.)
     pub fn main_cache(mut self, main_cache: Cache<String, Value>) -> Self {
         self.options.main_cache = main_cache;
         self
