@@ -319,3 +319,90 @@ async fn when_key_is_removed_then_it_should_be_removed_from_owner() -> Result<()
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_add_peer_is_idempotent() -> Result<()> {
+    let (instance_one, instance_two) = two_connected_instances().await?;
+
+    // Adding the same peer again should be a no-op (not an error).
+    instance_one
+        .add_peer(GroupcachePeer::from_socket(instance_two.addr()))
+        .await?;
+
+    // Routing should still work correctly.
+    let key = key_owned_by_instance(instance_two.clone());
+    successful_get(&key, Some("2"), instance_one.clone()).await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_set_peers_connects_to_genuinely_new_peers() -> Result<()> {
+    // Create instances WITHOUT connecting them through spawn_instances.
+    let instance_one = spawn_groupcache("1").await?;
+    let instance_two = spawn_groupcache("2").await?;
+    let instance_three = spawn_groupcache("3").await?;
+
+    // Use set_peers to introduce both new peers at once.
+    let peers: HashSet<GroupcachePeer> = [instance_two.addr(), instance_three.addr()]
+        .into_iter()
+        .map(GroupcachePeer::from_socket)
+        .collect();
+
+    instance_one.set_peers(peers).await?;
+
+    // Verify routing works through the newly connected peers.
+    let key_on_two = key_owned_by_instance(instance_two.clone());
+    successful_get(&key_on_two, Some("2"), instance_one.clone()).await;
+
+    let key_on_three = key_owned_by_instance(instance_three.clone());
+    successful_get(&key_on_three, Some("3"), instance_one.clone()).await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_remove_from_disconnected_peer_returns_transport_error() -> Result<()> {
+    let (instance_one, instance_two) = two_instances_with_one_disconnected().await?;
+
+    // Find a key owned by the disconnected instance_two.
+    let key = key_owned_by_instance(instance_two.clone());
+
+    // The graceful shutdown keeps existing HTTP/2 connections alive briefly.
+    // Retry remove until the connection actually drops.
+    let mut last_err = None;
+    for _ in 0..20 {
+        match instance_one.remove(&key).await {
+            Err(e) => {
+                last_err = Some(e);
+                break;
+            }
+            Ok(()) => {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        }
+    }
+
+    let err = last_err.expect("expected transport error for remove on disconnected peer");
+    let err_string = err.to_string();
+    assert!(
+        err_string.contains("Transport"),
+        "expected Transport error, got: '{}'",
+        err_string
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_remove_peer_that_is_not_known_is_noop() -> Result<()> {
+    let instance = single_instance().await?;
+    let unknown_addr: SocketAddr = "127.0.0.1:19999".parse()?;
+
+    // Removing a peer that was never added should succeed silently.
+    instance
+        .remove_peer(GroupcachePeer::from_socket(unknown_addr))
+        .await?;
+
+    Ok(())
+}

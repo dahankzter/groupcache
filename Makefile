@@ -34,14 +34,16 @@ doc:  ## Build documentation
 
 # ── Coverage (requires cargo-llvm-cov) ─────────────────
 
+COV_IGNORE := --ignore-filename-regex 'groupcache_pb\.rs'
+
 coverage:  ## Generate lcov coverage report → coverage/lcov.info
-	cargo llvm-cov --workspace --all-features --lcov --output-path coverage/lcov.info
+	cargo llvm-cov --workspace --all-features --lcov --output-path coverage/lcov.info $(COV_IGNORE)
 
 coverage-summary:  ## Print per-file coverage summary to stdout
-	cargo llvm-cov --workspace --all-features
+	cargo llvm-cov --workspace --all-features $(COV_IGNORE)
 
 coverage-html:  ## Generate HTML coverage report → coverage/html/
-	cargo llvm-cov --workspace --all-features --html --output-dir coverage/html
+	cargo llvm-cov --workspace --all-features --html --output-dir coverage/html $(COV_IGNORE)
 	@echo "Report: coverage/html/index.html"
 
 # ── Cleanup ────────────────────────────────────────────

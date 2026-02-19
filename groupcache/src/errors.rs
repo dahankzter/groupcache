@@ -92,3 +92,47 @@ pub(crate) enum InternalGroupcacheError {
     #[error("Peer returned empty value for key '{0}'")]
     EmptyResponse(String),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transport_error_conversion() {
+        let status = Status::unavailable("peer down");
+        let internal = InternalGroupcacheError::Transport(status);
+        let public: GroupcacheError = internal.into();
+        assert!(matches!(public, GroupcacheError::Transport(_)));
+    }
+
+    #[test]
+    fn rmp_deserialization_error_conversion() {
+        let rmp_err: RmpError = rmp_serde::from_slice::<String>(&[0xFF]).unwrap_err();
+        let internal = InternalGroupcacheError::Rmp(rmp_err);
+        let public: GroupcacheError = internal.into();
+        assert!(matches!(public, GroupcacheError::Deserialization(_)));
+    }
+
+    #[test]
+    fn empty_response_error_conversion() {
+        let internal = InternalGroupcacheError::EmptyResponse("some-key".to_string());
+        let public: GroupcacheError = internal.into();
+        assert!(matches!(public, GroupcacheError::EmptyResponse(_)));
+    }
+
+    #[test]
+    fn anyhow_error_conversion() {
+        let internal = InternalGroupcacheError::Anyhow(anyhow::anyhow!("unexpected"));
+        let public: GroupcacheError = internal.into();
+        assert!(matches!(public, GroupcacheError::Internal(_)));
+    }
+
+    #[test]
+    fn deduped_error_fallback_when_arc_shared() {
+        let inner = Arc::new(InternalGroupcacheError::EmptyResponse("key".to_string()));
+        let _extra_ref = inner.clone(); // keep a second reference so try_unwrap fails
+        let internal = InternalGroupcacheError::Deduped(DedupedGroupcacheError(inner));
+        let public: GroupcacheError = internal.into();
+        assert!(matches!(public, GroupcacheError::Internal(_)));
+    }
+}
