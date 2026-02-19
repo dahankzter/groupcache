@@ -250,3 +250,15 @@ impl From<SocketAddr> for GroupcachePeer {
         Self { socket: value }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn groupcache_peer_display() {
+        let addr: SocketAddr = "127.0.0.1:9090".parse().unwrap();
+        let peer = GroupcachePeer::from_socket(addr);
+        assert_eq!(peer.to_string(), "127.0.0.1:9090");
+    }
+}
