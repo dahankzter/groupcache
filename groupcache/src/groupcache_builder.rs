@@ -79,6 +79,22 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
         self
     }
 
+    /// Enable streaming invalidation.
+    ///
+    /// When enabled, key owners push invalidation events to all peers via
+    /// persistent gRPC streams. Peers clear their hot cache entries in
+    /// near-realtime instead of waiting for TTL expiration.
+    ///
+    /// This also enables:
+    /// - Hot cache flush on stream disconnect (prevents stale data after network issues)
+    /// - Selective cache eviction on membership changes (peers joining/leaving)
+    ///
+    /// By default, streaming invalidation is disabled for backwards compatibility.
+    pub fn enable_invalidation_streaming(mut self) -> Self {
+        self.options.invalidation.enabled = true;
+        self
+    }
+
     /// Enable automatic pull-based service discovery via [`ServiceDiscovery`]
     ///
     /// By default, automatic service is disabled, useful when:

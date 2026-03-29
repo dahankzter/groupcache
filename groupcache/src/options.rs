@@ -1,3 +1,4 @@
+use crate::invalidation::InvalidationConfig;
 use crate::service_discovery::ServiceDiscovery;
 use crate::ValueBounds;
 use moka::future::Cache;
@@ -16,6 +17,7 @@ pub(crate) struct Options<Value: ValueBounds> {
     pub(crate) grpc_endpoint_builder: Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>,
     pub(crate) https: bool,
     pub(crate) service_discovery: Option<Box<dyn ServiceDiscovery>>,
+    pub(crate) invalidation: InvalidationConfig,
 }
 
 impl<Value: ValueBounds> Default for Options<Value> {
@@ -38,6 +40,7 @@ impl<Value: ValueBounds> Default for Options<Value> {
             grpc_endpoint_builder,
             https: false,
             service_discovery: None,
+            invalidation: InvalidationConfig::default(),
         }
     }
 }

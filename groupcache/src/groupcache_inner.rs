@@ -3,9 +3,11 @@
 use crate::errors::InternalGroupcacheError::Anyhow;
 use crate::errors::{DedupedGroupcacheError, GroupcacheError, InternalGroupcacheError};
 use crate::groupcache::{GroupcachePeer, GroupcachePeerClient, ValueBounds, ValueLoader};
+use crate::invalidation::InvalidationManager;
 use crate::metrics::{
     METRIC_GET_TOTAL, METRIC_LOCAL_CACHE_HIT_TOTAL, METRIC_LOCAL_LOAD_ERROR_TOTAL,
     METRIC_LOCAL_LOAD_TOTAL, METRIC_REMOTE_LOAD_ERROR, METRIC_REMOTE_LOAD_TOTAL,
+    METRIC_REMOVE_TOTAL,
 };
 use crate::options::Options;
 use crate::routing::{GroupcachePeerWithClient, RoutingState};
@@ -32,6 +34,7 @@ pub struct GroupcacheInner<Value: ValueBounds> {
     config: Config,
     me: GroupcachePeer,
     service_discovery_abort: OnceLock<AbortHandle>,
+    pub(crate) invalidation: InvalidationManager,
 }
 
 struct Config {
@@ -57,6 +60,8 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             grpc_endpoint_builder: Arc::new(options.grpc_endpoint_builder),
         };
 
+        let invalidation = InvalidationManager::new(options.invalidation);
+
         Self {
             routing_state,
             single_flight_group,
@@ -66,6 +71,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             me,
             config,
             service_discovery_abort: OnceLock::new(),
+            invalidation,
         }
     }
 
@@ -193,6 +199,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         &self,
         key: &str,
     ) -> core::result::Result<(), InternalGroupcacheError> {
+        counter!(METRIC_REMOVE_TOTAL).increment(1);
         self.hot_cache.remove(key).await;
 
         let peer = {
@@ -202,6 +209,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
 
         if peer.peer == self.me {
             self.main_cache.remove(key).await;
+            self.invalidation.broadcast(key);
         } else {
             let mut client = peer
                 .client
@@ -240,12 +248,22 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
 
         let (_, client) = self.connect(peer).await?;
 
+        if self.invalidation.config().enabled {
+            self.invalidation
+                .spawn_watcher(peer, client.clone(), self.hot_cache.clone());
+        }
+
         // Re-check under write lock to avoid adding a duplicate if another task
         // connected to the same peer concurrently.
-        let mut write_lock = self.routing_state.write().unwrap();
-        if !write_lock.contains_peer(&peer) {
-            write_lock.add_peer(peer, client);
+        {
+            let mut write_lock = self.routing_state.write().unwrap();
+            if !write_lock.contains_peer(&peer) {
+                write_lock.add_peer(peer, client);
+            }
         }
+
+        // After ring update: evict main cache keys we no longer own
+        self.evict_main_cache_keys_not_owned().await;
 
         Ok(())
     }
@@ -269,7 +287,16 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             return Ok(());
         }
 
+        // Before ring update: evict hot cache entries for keys owned by departing peers
+        for peer in &peers_to_remove {
+            self.evict_hot_cache_keys_owned_by(**peer).await;
+        }
+
         let conn_errors = self.update_routing_table(new_connections_results, peers_to_remove);
+
+        // After ring update: evict main cache keys we no longer own
+        self.evict_main_cache_keys_not_owned().await;
+
         if conn_errors.is_empty() {
             Ok(())
         } else {
@@ -293,6 +320,10 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         for result in connection_results {
             match result {
                 Ok((peer, client)) => {
+                    if self.invalidation.config().enabled {
+                        self.invalidation
+                            .spawn_watcher(peer, client.clone(), self.hot_cache.clone());
+                    }
                     write_lock.add_peer(peer, client);
                 }
                 Err(e) => {
@@ -302,6 +333,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         }
 
         for removed_peer in peers_to_remove {
+            self.invalidation.cancel_watcher(removed_peer);
             write_lock.remove_peer(*removed_peer);
         }
 
@@ -374,10 +406,29 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     }
 
     pub(crate) async fn remove_peer(&self, peer: GroupcachePeer) -> Result<(), GroupcacheError> {
-        let mut write_lock = self.routing_state.write().unwrap();
-        if write_lock.contains_peer(&peer) {
+        let contains_peer = {
+            let read_lock = self.routing_state.read().unwrap();
+            read_lock.contains_peer(&peer)
+        };
+
+        if !contains_peer {
+            return Ok(());
+        }
+
+        self.invalidation.cancel_watcher(&peer);
+
+        // Evict hot cache entries for keys owned by the departing peer
+        // (before ring update, while we can still identify them)
+        self.evict_hot_cache_keys_owned_by(peer).await;
+
+        {
+            let mut write_lock = self.routing_state.write().unwrap();
             write_lock.remove_peer(peer);
         }
+
+        // After ring update: evict main cache keys we no longer own
+        // (peer removal can shift keys away from this node)
+        self.evict_main_cache_keys_not_owned().await;
 
         Ok(())
     }
@@ -388,6 +439,52 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
 
     pub(crate) fn addr(&self) -> SocketAddr {
         self.me.socket
+    }
+
+    /// Evict hot cache entries for keys currently owned by the given peer.
+    /// Called before removing a peer from the ring, so ownership is still
+    /// queryable from the current ring state.
+    async fn evict_hot_cache_keys_owned_by(&self, peer: GroupcachePeer) {
+        let keys_to_evict: Vec<Arc<str>> = {
+            let lock = self.routing_state.read().unwrap();
+            self.hot_cache
+                .iter()
+                .filter(|(key, _)| {
+                    let key_str: &str = key.as_ref();
+                    lock.owner_of(key_str) == Some(peer)
+                })
+                .map(|(key, _)| {
+                    let inner: &Arc<str> = &key;
+                    Arc::clone(inner)
+                })
+                .collect()
+        };
+        for key in keys_to_evict {
+            self.hot_cache.remove(key.as_ref()).await;
+        }
+    }
+
+    /// Evict main cache entries for keys this node no longer owns.
+    /// Called after a ring change (peer added) to clear keys that
+    /// moved to the new peer.
+    async fn evict_main_cache_keys_not_owned(&self) {
+        let keys_to_evict: Vec<Arc<str>> = {
+            let lock = self.routing_state.read().unwrap();
+            self.main_cache
+                .iter()
+                .filter(|(key, _)| {
+                    let key_str: &str = key.as_ref();
+                    lock.owner_of(key_str).is_some_and(|owner| owner != self.me)
+                })
+                .map(|(key, _)| {
+                    let inner: &Arc<str> = &key;
+                    Arc::clone(inner)
+                })
+                .collect()
+        };
+        for key in keys_to_evict {
+            self.main_cache.remove(key.as_ref()).await;
+        }
     }
 }
 

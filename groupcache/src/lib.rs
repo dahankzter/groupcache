@@ -5,6 +5,7 @@ mod groupcache;
 mod groupcache_builder;
 mod groupcache_inner;
 mod http;
+mod invalidation;
 pub mod metrics;
 mod options;
 mod routing;

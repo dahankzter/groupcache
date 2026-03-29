@@ -29,3 +29,18 @@ pub(crate) const METRIC_REMOTE_LOAD_TOTAL: &str = "groupcache_remote_load_total"
 
 /// Total number of remote GET failures.
 pub(crate) const METRIC_REMOTE_LOAD_ERROR: &str = "groupcache_remote_load_errors";
+
+/// Total number of invalidation events broadcast by this node (as key owner).
+pub(crate) const METRIC_INVALIDATION_BROADCAST_TOTAL: &str =
+    "groupcache_invalidation_broadcast_total";
+
+/// Total number of invalidation events received from remote peers via stream.
+pub(crate) const METRIC_INVALIDATION_RECEIVED_TOTAL: &str =
+    "groupcache_invalidation_received_total";
+
+/// Total number of invalidation stream disconnects (triggers hot cache flush).
+pub(crate) const METRIC_INVALIDATION_STREAM_DISCONNECT_TOTAL: &str =
+    "groupcache_invalidation_stream_disconnect_total";
+
+/// Total number of remove operations initiated.
+pub(crate) const METRIC_REMOVE_TOTAL: &str = "groupcache_remove_total";

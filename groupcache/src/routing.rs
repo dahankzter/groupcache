@@ -46,6 +46,11 @@ impl RoutingState {
         Ok(GroupcachePeerWithClient { peer, client })
     }
 
+    /// Returns the peer that owns the given key, or None if the ring is empty.
+    pub(crate) fn owner_of(&self, key: &str) -> Option<GroupcachePeer> {
+        self.ring.get(&key).map(|vnode| vnode.as_peer())
+    }
+
     fn peer_for_key(&self, key: &str) -> Result<GroupcachePeer> {
         let vnode = self
             .ring
