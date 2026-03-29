@@ -1,5 +1,6 @@
 #![doc = include_str!("../readme.md")]
 
+mod codec;
 mod errors;
 mod groupcache;
 mod groupcache_builder;

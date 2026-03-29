@@ -7,6 +7,7 @@ use std::net::SocketAddr;
 
 static VNODES_PER_PEER: u32 = 40;
 
+#[derive(Clone)]
 pub(crate) struct RoutingState {
     peers: HashMap<GroupcachePeer, GroupcachePeerClient>,
     ring: HashRing<VNode>,

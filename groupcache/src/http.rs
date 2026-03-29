@@ -21,8 +21,7 @@ impl<Value: ValueBounds> Groupcache for GroupcacheInner<Value> {
         let payload = request.into_inner();
         match self.get(&payload.key).await {
             Ok(value) => {
-                let result = rmp_serde::to_vec(&value);
-                match result {
+                match crate::codec::serialize(&value) {
                     Ok(bytes) => Ok(Response::new(GetResponse { value: Some(bytes) })),
                     Err(err) => Err(Status::internal(err.to_string())),
                 }

@@ -19,14 +19,15 @@ use moka::future::Cache;
 use singleflight_async::SingleFlight;
 use std::collections::HashSet;
 use std::net::SocketAddr;
-use std::sync::{Arc, OnceLock, RwLock};
+use arc_swap::ArcSwap;
+use std::sync::{Arc, OnceLock};
 use tokio::task::{AbortHandle, JoinSet};
 use tonic::transport::Endpoint;
 use tonic::IntoRequest;
 
 /// Core implementation of groupcache API.
 pub struct GroupcacheInner<Value: ValueBounds> {
-    routing_state: Arc<RwLock<RoutingState>>,
+    routing_state: Arc<ArcSwap<RoutingState>>,
     single_flight_group: SingleFlight<Arc<str>, Result<Value, DedupedGroupcacheError>>,
     main_cache: Cache<Arc<str>, Value>,
     hot_cache: Cache<Arc<str>, Value>,
@@ -48,7 +49,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         loader: Box<dyn ValueLoader<Value = Value>>,
         options: Options<Value>,
     ) -> Self {
-        let routing_state = Arc::new(RwLock::new(RoutingState::with_local_peer(me)));
+        let routing_state = Arc::new(ArcSwap::from_pointee(RoutingState::with_local_peer(me)));
 
         let main_cache = options.main_cache;
         let hot_cache = options.hot_cache;
@@ -96,7 +97,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         }
 
         let peer = {
-            let lock = self.routing_state.read().unwrap();
+            let lock = self.routing_state.load();
             lock.lookup_peer(key)
         }?;
 
@@ -190,7 +191,8 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         let bytes = get_response
             .value
             .ok_or_else(|| InternalGroupcacheError::EmptyResponse(key.to_string()))?;
-        let value = rmp_serde::from_slice(&bytes)?;
+        let value = crate::codec::deserialize(&bytes)
+            .map_err(|e| anyhow::anyhow!("failed to deserialize value from peer: {}", e))?;
 
         Ok(value)
     }
@@ -203,7 +205,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         self.hot_cache.remove(key).await;
 
         let peer = {
-            let lock = self.routing_state.read().unwrap();
+            let lock = self.routing_state.load();
             lock.lookup_peer(key)
         }?;
 
@@ -240,7 +242,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     pub(crate) async fn add_peer(&self, peer: GroupcachePeer) -> Result<(), GroupcacheError> {
         // Quick check with read lock to avoid unnecessary connections.
         {
-            let read_lock = self.routing_state.read().unwrap();
+            let read_lock = self.routing_state.load();
             if read_lock.contains_peer(&peer) {
                 return Ok(());
             }
@@ -253,12 +255,13 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
                 .spawn_watcher(peer, client.clone(), self.hot_cache.clone());
         }
 
-        // Re-check under write lock to avoid adding a duplicate if another task
-        // connected to the same peer concurrently.
+        // Re-check to avoid adding a duplicate if another task connected concurrently.
         {
-            let mut write_lock = self.routing_state.write().unwrap();
-            if !write_lock.contains_peer(&peer) {
-                write_lock.add_peer(peer, client);
+            let current = self.routing_state.load();
+            if !current.contains_peer(&peer) {
+                let mut new_state = (**current).clone();
+                new_state.add_peer(peer, client);
+                self.routing_state.store(Arc::new(new_state));
             }
         }
 
@@ -273,7 +276,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         updated_peers: HashSet<GroupcachePeer>,
     ) -> Result<(), GroupcacheError> {
         let current_peers: HashSet<GroupcachePeer> = {
-            let read_lock = self.routing_state.read().unwrap();
+            let read_lock = self.routing_state.load();
             read_lock.peers()
         };
 
@@ -314,7 +317,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         >,
         peers_to_remove: Vec<&GroupcachePeer>,
     ) -> Vec<InternalGroupcacheError> {
-        let mut write_lock = self.routing_state.write().unwrap();
+        let mut new_state = (**self.routing_state.load()).clone();
 
         let mut connection_errors = Vec::new();
         for result in connection_results {
@@ -324,7 +327,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
                         self.invalidation
                             .spawn_watcher(peer, client.clone(), self.hot_cache.clone());
                     }
-                    write_lock.add_peer(peer, client);
+                    new_state.add_peer(peer, client);
                 }
                 Err(e) => {
                     connection_errors.push(e);
@@ -334,8 +337,10 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
 
         for removed_peer in peers_to_remove {
             self.invalidation.cancel_watcher(removed_peer);
-            write_lock.remove_peer(*removed_peer);
+            new_state.remove_peer(*removed_peer);
         }
+
+        self.routing_state.store(Arc::new(new_state));
 
         connection_errors
     }
@@ -407,7 +412,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
 
     pub(crate) async fn remove_peer(&self, peer: GroupcachePeer) -> Result<(), GroupcacheError> {
         let contains_peer = {
-            let read_lock = self.routing_state.read().unwrap();
+            let read_lock = self.routing_state.load();
             read_lock.contains_peer(&peer)
         };
 
@@ -422,8 +427,9 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         self.evict_hot_cache_keys_owned_by(peer).await;
 
         {
-            let mut write_lock = self.routing_state.write().unwrap();
-            write_lock.remove_peer(peer);
+            let mut new_state = (**self.routing_state.load()).clone();
+            new_state.remove_peer(peer);
+            self.routing_state.store(Arc::new(new_state));
         }
 
         // After ring update: evict main cache keys we no longer own
@@ -446,7 +452,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     /// queryable from the current ring state.
     async fn evict_hot_cache_keys_owned_by(&self, peer: GroupcachePeer) {
         let keys_to_evict: Vec<Arc<str>> = {
-            let lock = self.routing_state.read().unwrap();
+            let lock = self.routing_state.load();
             self.hot_cache
                 .iter()
                 .filter(|(key, _)| {
@@ -469,7 +475,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     /// moved to the new peer.
     async fn evict_main_cache_keys_not_owned(&self) {
         let keys_to_evict: Vec<Arc<str>> = {
-            let lock = self.routing_state.read().unwrap();
+            let lock = self.routing_state.load();
             self.main_cache
                 .iter()
                 .filter(|(key, _)| {
