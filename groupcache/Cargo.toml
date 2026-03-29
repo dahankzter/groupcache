@@ -17,6 +17,7 @@ repository = "https://github.com/Petroniuss/groupcache"
 
 [features]
 bincode = ["dep:bincode"]
+kubernetes = ["dep:kube", "dep:k8s-openapi"]
 
 [dependencies]
 groupcache-pb = { path = "../groupcache-pb", version = "0.3.0" }
@@ -35,6 +36,8 @@ singleflight-async = "0.2.0"
 moka = { version = "0.12.1", features = ["future"] }
 log = "0.4.20"
 metrics = "0.24.0"
+kube = { version = "3", features = ["runtime", "derive"], optional = true }
+k8s-openapi = { version = "0.27", features = ["latest"], optional = true }
 
 [dev-dependencies]
 cargo-husky = { workspace = true }
