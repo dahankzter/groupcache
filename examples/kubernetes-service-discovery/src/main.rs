@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
         .build()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let groupcache = Groupcache::builder(addr.into(), loader)
+    let groupcache = Groupcache::builder(addr.into(), loader, groupcache::CancellationToken::new())
         .service_discovery(discovery)
         .build();
 

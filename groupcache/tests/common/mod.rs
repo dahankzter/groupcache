@@ -116,7 +116,7 @@ pub async fn spawn_groupcache_with_service_discovery(
 ) -> Result<TestGroupcache> {
     let listener = TcpListener::bind(OS_ALLOCATED_PORT_ADDR).await.unwrap();
     let addr = listener.local_addr()?;
-    let groupcache = Groupcache::builder(addr.into(), TestCacheLoader::new(instance_id))
+    let groupcache = Groupcache::builder(addr.into(), TestCacheLoader::new(instance_id), groupcache::CancellationToken::new())
         .hot_cache(CacheBuilder::default().time_to_live(HOT_CACHE_TTL).build())
         .enable_invalidation_streaming()
         .service_discovery(sd)
@@ -192,7 +192,7 @@ pub async fn spawn_groupcache_instance(
 ) -> Result<TestGroupcache> {
     let listener = TcpListener::bind(addr).await.unwrap();
     let addr = listener.local_addr()?;
-    let groupcache = Groupcache::builder(addr.into(), TestCacheLoader::new(instance_id))
+    let groupcache = Groupcache::builder(addr.into(), TestCacheLoader::new(instance_id), groupcache::CancellationToken::new())
         .hot_cache(CacheBuilder::default().time_to_live(HOT_CACHE_TTL).build())
         .enable_invalidation_streaming()
         .build();

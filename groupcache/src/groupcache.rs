@@ -41,11 +41,16 @@ impl<Value: ValueBounds> Groupcache<Value> {
     /// In order to construct [`Groupcache`] application needs to provide:
     /// - [`GroupcachePeer`] - necessary for routing
     /// - [`ValueLoader`] implementation
+    /// - [`CancellationToken`](tokio_util::sync::CancellationToken) - for graceful shutdown
+    ///
+    /// When the token is cancelled, all background tasks (service discovery,
+    /// invalidation watchers) will stop gracefully.
     pub fn builder(
         me: GroupcachePeer,
         loader: impl ValueLoader<Value = Value> + 'static,
+        cancel: tokio_util::sync::CancellationToken,
     ) -> GroupcacheBuilder<Value> {
-        GroupcacheBuilder::new(me, Box::new(loader))
+        GroupcacheBuilder::new(me, Box::new(loader), cancel)
     }
 
     /// Provided a given `key`

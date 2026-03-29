@@ -47,6 +47,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     pub(crate) fn new(
         me: GroupcachePeer,
         loader: Box<dyn ValueLoader<Value = Value>>,
+        cancel: tokio_util::sync::CancellationToken,
         options: Options<Value>,
     ) -> Self {
         let routing_state = Arc::new(ArcSwap::from_pointee(RoutingState::with_local_peer(me)));
@@ -61,7 +62,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             grpc_endpoint_builder: Arc::new(options.grpc_endpoint_builder),
         };
 
-        let invalidation = InvalidationManager::new(options.invalidation);
+        let invalidation = InvalidationManager::new(options.invalidation, cancel);
 
         Self {
             routing_state,

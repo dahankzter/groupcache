@@ -21,3 +21,7 @@ pub use service_discovery::ServiceDiscovery;
 
 /// we expose [`moka`](https://crates.io/crates/moka) since it's used in the public api of the library.
 pub use moka;
+
+/// Re-export [`CancellationToken`](tokio_util::sync::CancellationToken) since it's
+/// required by [`Groupcache::builder`].
+pub use tokio_util::sync::CancellationToken;

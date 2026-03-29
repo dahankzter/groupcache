@@ -45,13 +45,15 @@ impl Default for InvalidationConfig {
 pub(crate) struct InvalidationManager {
     sender: broadcast::Sender<String>,
     config: InvalidationConfig,
+    cancel: tokio_util::sync::CancellationToken,
     watchers: Mutex<HashMap<GroupcachePeer, JoinHandle<()>>>,
 }
 
 impl InvalidationManager {
-    pub(crate) fn new(config: InvalidationConfig) -> Self {
+    pub(crate) fn new(config: InvalidationConfig, cancel: tokio_util::sync::CancellationToken) -> Self {
         let (sender, _) = broadcast::channel(BROADCAST_CHANNEL_CAPACITY);
         Self {
+            cancel,
             sender,
             config,
             watchers: Mutex::new(HashMap::new()),
@@ -99,11 +101,16 @@ impl InvalidationManager {
     ) {
         let config = self.config.clone();
         let peer_socket = peer.socket;
+        let cancel = self.cancel.clone();
 
         let handle = tokio::spawn(async move {
             let mut backoff = config.reconnect_base_delay;
 
             loop {
+                if cancel.is_cancelled() {
+                    break;
+                }
+
                 match client
                     .watch_invalidations(WatchRequest {}.into_request())
                     .await
@@ -156,7 +163,10 @@ impl InvalidationManager {
                 hot_cache.invalidate_all();
                 counter!(METRIC_INVALIDATION_STREAM_DISCONNECT_TOTAL).increment(1);
 
-                tokio::time::sleep(backoff).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(backoff) => {}
+                    _ = cancel.cancelled() => break,
+                }
                 backoff = (backoff * 2).min(config.reconnect_max_delay);
             }
         });

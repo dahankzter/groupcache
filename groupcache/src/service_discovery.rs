@@ -35,9 +35,13 @@ pub trait ServiceDiscovery: Send {
 pub(crate) async fn run_service_discovery<Value: ValueBounds>(
     cache: Weak<GroupcacheInner<Value>>,
     service_discovery: Box<dyn ServiceDiscovery>,
+    cancel: tokio_util::sync::CancellationToken,
 ) {
     loop {
-        tokio::time::sleep(service_discovery.interval()).await;
+        tokio::select! {
+            _ = tokio::time::sleep(service_discovery.interval()) => {}
+            _ = cancel.cancelled() => break,
+        }
         let Some(cache) = cache.upgrade() else { break };
         match service_discovery.pull_instances().await {
             Ok(instances) => {
@@ -58,6 +62,7 @@ mod tests {
     use crate::groupcache::ValueLoader;
     use crate::options::Options;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use tokio_util::sync::CancellationToken;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -115,11 +120,12 @@ mod tests {
         let inner = Arc::new(GroupcacheInner::new(
             peer,
             Box::new(DummyLoader),
+            CancellationToken::new(),
             Options::default(),
         ));
         let weak = Arc::downgrade(&inner);
 
-        let handle = tokio::spawn(run_service_discovery(weak, Box::new(CountingDiscovery)));
+        let handle = tokio::spawn(run_service_discovery(weak, Box::new(CountingDiscovery), CancellationToken::new()));
 
         // Let it run a few iterations
         tokio::time::sleep(Duration::from_millis(80)).await;
@@ -162,6 +168,7 @@ mod tests {
         let inner = Arc::new(GroupcacheInner::new(
             peer,
             Box::new(DummyLoader),
+            CancellationToken::new(),
             Options::default(),
         ));
         let weak = Arc::downgrade(&inner);
@@ -169,6 +176,7 @@ mod tests {
         let handle = tokio::spawn(run_service_discovery(
             weak,
             Box::new(UnreachablePeerDiscovery(unreachable_addr)),
+            CancellationToken::new(),
         ));
 
         // Wait for at least one failed set_peers attempt.
@@ -204,11 +212,12 @@ mod tests {
         let inner = Arc::new(GroupcacheInner::new(
             peer,
             Box::new(DummyLoader),
+            CancellationToken::new(),
             Options::default(),
         ));
         let weak = Arc::downgrade(&inner);
 
-        let handle = tokio::spawn(run_service_discovery(weak, Box::new(FailingDiscovery)));
+        let handle = tokio::spawn(run_service_discovery(weak, Box::new(FailingDiscovery), CancellationToken::new()));
 
         // Let it attempt a few pulls (they all fail but shouldn't crash)
         tokio::time::sleep(Duration::from_millis(50)).await;

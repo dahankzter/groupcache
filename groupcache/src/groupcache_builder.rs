@@ -4,6 +4,7 @@ use crate::service_discovery::run_service_discovery;
 use crate::{Groupcache, GroupcacheInner, GroupcachePeer, ServiceDiscovery, ValueLoader};
 use moka::future::Cache;
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 use tonic::transport::Endpoint;
 
 /// Type alias for the cache key used by groupcache.
@@ -16,6 +17,7 @@ pub type CacheKey = Arc<str>;
 pub struct GroupcacheBuilder<Value: ValueBounds> {
     me: GroupcachePeer,
     loader: Box<dyn ValueLoader<Value = Value>>,
+    cancel: CancellationToken,
     options: Options<Value>,
 }
 
@@ -23,10 +25,12 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
     pub(crate) fn new(
         me: GroupcachePeer,
         loader: Box<impl ValueLoader<Value = Value> + Sized + 'static>,
+        cancel: CancellationToken,
     ) -> Self {
         Self {
             me,
             loader,
+            cancel,
             options: Options::default(),
         }
     }
@@ -110,6 +114,7 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
         let cache = Groupcache(Arc::new(GroupcacheInner::new(
             self.me,
             self.loader,
+            self.cancel.clone(),
             self.options,
         )));
 
@@ -117,6 +122,7 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
             let handle = tokio::spawn(run_service_discovery(
                 Arc::downgrade(&cache.0),
                 service_discovery,
+                self.cancel.clone(),
             ));
             cache.0.set_service_discovery_abort(handle.abort_handle());
         }
