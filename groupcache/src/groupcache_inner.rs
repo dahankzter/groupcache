@@ -34,6 +34,7 @@ pub struct GroupcacheInner<Value: ValueBounds> {
     loader: Box<dyn ValueLoader<Value = Value>>,
     config: Config,
     me: GroupcachePeer,
+    cancel: tokio_util::sync::CancellationToken,
     service_discovery_abort: OnceLock<AbortHandle>,
     pub(crate) invalidation: InvalidationManager,
 }
@@ -62,7 +63,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             grpc_endpoint_builder: Arc::new(options.grpc_endpoint_builder),
         };
 
-        let invalidation = InvalidationManager::new(options.invalidation, cancel);
+        let invalidation = InvalidationManager::new(options.invalidation, cancel.clone());
 
         Self {
             routing_state,
@@ -72,6 +73,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
             loader,
             me,
             config,
+            cancel,
             service_discovery_abort: OnceLock::new(),
             invalidation,
         }
@@ -446,6 +448,27 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
 
     pub(crate) fn addr(&self) -> SocketAddr {
         self.me.socket
+    }
+
+    pub(crate) fn status(&self) -> crate::status::Status {
+        use crate::status::{HealthState, Status};
+
+        let peer_count = self.routing_state.load().peers().len();
+
+        let health = if self.cancel.is_cancelled() {
+            HealthState::ShuttingDown
+        } else if peer_count == 0 {
+            HealthState::NoPeers
+        } else {
+            HealthState::Healthy
+        };
+
+        Status {
+            health,
+            peer_count,
+            main_cache_size: self.main_cache.entry_count(),
+            hot_cache_size: self.hot_cache.entry_count(),
+        }
     }
 
     /// Evict hot cache entries for keys currently owned by the given peer.

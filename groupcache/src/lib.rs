@@ -12,6 +12,7 @@ pub mod metrics;
 mod options;
 mod routing;
 mod service_discovery;
+pub mod status;
 
 pub use groupcache::{Groupcache, GroupcachePeer, ValueBounds, ValueLoader};
 pub use groupcache_builder::{CacheKey, GroupcacheBuilder};

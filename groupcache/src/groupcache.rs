@@ -166,6 +166,14 @@ impl<Value: ValueBounds> Groupcache<Value> {
     pub fn addr(&self) -> SocketAddr {
         self.0.addr()
     }
+
+    /// Returns a snapshot of the instance's current health and cache state.
+    ///
+    /// The library reports state; the application decides policy. See
+    /// [`status::HealthState`] for the possible states.
+    pub fn status(&self) -> crate::status::Status {
+        self.0.status()
+    }
 }
 
 /// [ValueLoader] loads a value for a particular key - which can be potentially expensive.
