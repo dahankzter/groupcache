@@ -14,6 +14,7 @@ static DEFAULT_GRPC_CLIENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) struct Options<Value: ValueBounds> {
     pub(crate) main_cache: Cache<Arc<str>, Value>,
     pub(crate) hot_cache: Cache<Arc<str>, Value>,
+    pub(crate) grpc_timeout: Duration,
     pub(crate) grpc_endpoint_builder: Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>,
     pub(crate) https: bool,
     pub(crate) service_discovery: Option<Box<dyn ServiceDiscovery>>,
@@ -31,12 +32,12 @@ impl<Value: ValueBounds> Default for Options<Value> {
             .time_to_live(DEFAULT_HOT_CACHE_TIME_TO_LIVE)
             .build();
 
-        let grpc_endpoint_builder =
-            Box::new(|e: Endpoint| e.timeout(DEFAULT_GRPC_CLIENT_REQUEST_TIMEOUT));
+        let grpc_endpoint_builder = Box::new(|e: Endpoint| e);
 
         Self {
             main_cache,
             hot_cache,
+            grpc_timeout: DEFAULT_GRPC_CLIENT_REQUEST_TIMEOUT,
             grpc_endpoint_builder,
             https: false,
             service_discovery: None,

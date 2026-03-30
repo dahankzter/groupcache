@@ -72,9 +72,22 @@ impl<Value: ValueBounds> GroupcacheBuilder<Value> {
         self
     }
 
+    /// Set the timeout for gRPC requests to peer nodes.
+    ///
+    /// This controls how long a `get()` or `remove()` call waits for a
+    /// response from the key's owner before failing. Default: 10 seconds.
+    ///
+    /// For datacenter deployments, a shorter timeout (e.g., 500ms) with
+    /// fast failover to local load is recommended.
+    pub fn grpc_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.options.grpc_timeout = timeout;
+        self
+    }
+
     /// Allows to customize HTTP/2 channels for peer-to-peer connections.
     ///
-    /// By default, request timeout is set to 10 seconds.
+    /// For most use cases, [`grpc_timeout`](Self::grpc_timeout) is sufficient.
+    /// This method provides full control over the tonic `Endpoint`.
     pub fn grpc_endpoint_builder(
         mut self,
         builder: impl Fn(Endpoint) -> Endpoint + Send + Sync + 'static,

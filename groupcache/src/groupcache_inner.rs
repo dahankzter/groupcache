@@ -41,6 +41,7 @@ pub struct GroupcacheInner<Value: ValueBounds> {
 
 struct Config {
     https: bool,
+    grpc_timeout: std::time::Duration,
     grpc_endpoint_builder: Arc<Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>>,
 }
 
@@ -60,6 +61,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
 
         let config = Config {
             https: options.https,
+            grpc_timeout: options.grpc_timeout,
             grpc_endpoint_builder: Arc::new(options.grpc_endpoint_builder),
         };
 
@@ -364,9 +366,10 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         for new_peer in peers_to_connect {
             let moved_peer = *new_peer;
             let https = self.config.https;
+            let timeout = self.config.grpc_timeout;
             let grpc_endpoint_builder = self.config.grpc_endpoint_builder.clone();
             connection_task.spawn(async move {
-                GroupcacheInner::<Value>::connect_static(moved_peer, https, grpc_endpoint_builder)
+                GroupcacheInner::<Value>::connect_static(moved_peer, https, timeout, grpc_endpoint_builder)
                     .await
             });
         }
@@ -390,6 +393,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         GroupcacheInner::<Value>::connect_static(
             peer,
             self.config.https,
+            self.config.grpc_timeout,
             self.config.grpc_endpoint_builder.clone(),
         )
         .await
@@ -398,6 +402,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
     async fn connect_static(
         peer: GroupcachePeer,
         https: bool,
+        timeout: std::time::Duration,
         grpc_endpoint_builder: Arc<Box<dyn Fn(Endpoint) -> Endpoint + Send + Sync + 'static>>,
     ) -> Result<(GroupcachePeer, GroupcachePeerClient), InternalGroupcacheError> {
         let socket = peer.socket;
@@ -408,6 +413,7 @@ impl<Value: ValueBounds> GroupcacheInner<Value> {
         };
 
         let endpoint: Endpoint = peer_addr.try_into()?;
+        let endpoint = endpoint.timeout(timeout);
         let endpoint = grpc_endpoint_builder.as_ref()(endpoint);
         let client = GroupcacheClient::connect(endpoint).await?;
         Ok((peer, client))
