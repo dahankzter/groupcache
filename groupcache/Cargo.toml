@@ -1,19 +1,22 @@
 [package]
-name = "groupcache"
-version = "0.3.0"
-authors = ["Patryk Wojtyczek"]
+name = "groupcache-ng"
+version = "0.4.0"
+authors = ["Patryk Wojtyczek", "Henrik Johansson <dahankzter@gmail.com>"]
 edition = "2021"
 categories = ["caching", "web-programming", "concurrency", "asynchronous"]
 description = """
-groupcache is a distributed caching and cache-filling library, \
-intended as a replacement for a pool of memcached nodes in many cases. \
-It shards by key to select which peer is responsible for that key.\
+A distributed caching and cache-filling library with near-realtime \
+streaming invalidation, lock-free routing, and built-in service discovery. \
+Fork of groupcache with added features — pending upstream merge.\
 """
-homepage = "https://github.com/Petroniuss/groupcache"
-keywords = ["distributed", "cache", "shard", "memcached", "gRPC"]
+homepage = "https://github.com/dahankzter/groupcache"
+keywords = ["distributed", "cache", "invalidation", "consistent-hashing", "gRPC"]
 license = "MIT"
 readme = "readme.md"
-repository = "https://github.com/Petroniuss/groupcache"
+repository = "https://github.com/dahankzter/groupcache"
+
+[lib]
+name = "groupcache"
 
 [features]
 bincode = ["dep:bincode"]
@@ -21,7 +24,7 @@ kubernetes = ["dep:kube", "dep:k8s-openapi"]
 consul = ["dep:reqwest"]
 
 [dependencies]
-groupcache-pb = { path = "../groupcache-pb", version = "0.3.0" }
+groupcache-pb = { path = "../groupcache-pb", version = "0.4.0", package = "groupcache-ng-pb" }
 tonic = "0.14.2"
 hashring = "0.3.3"
 anyhow = "1.0"

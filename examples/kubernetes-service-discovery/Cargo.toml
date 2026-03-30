@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 # This pulls version from main branch so that docker build works (docker was confused by paths)
 #groupcache = { git = "https://github.com/Petroniuss/groupcache.git" }
-groupcache = { path = "../../groupcache", features = ["kubernetes"] }
+groupcache = { path = "../../groupcache", package = "groupcache-ng", features = ["kubernetes"] }
 tonic = "0.14.2"
 axum = "0.8.0"
 
